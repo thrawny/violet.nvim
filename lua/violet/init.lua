@@ -1,6 +1,7 @@
 local M = {}
 
 M.channel_id = nil
+M.starting = false -- Prevents multiple start() calls
 M.opts = {
   keymaps = {
     inline_edit = false, -- Users typically set keymaps via lazy.nvim keys spec
@@ -18,10 +19,15 @@ M.on_ready_callback = nil -- Callback to run when connection is established
 function M.setup(opts)
   opts = opts or {}
   M.opts = vim.tbl_deep_extend("force", M.opts, opts)
-  M.start()
+  -- Don't start backend here - defer until first use
 end
 
 function M.start()
+  if M.starting then
+    return
+  end
+  M.starting = true
+
   local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
 
   local job_id = vim.fn.jobstart("bun run start", {
@@ -55,42 +61,38 @@ function M.bridge(channel_id)
     vim.schedule(cb)
   end
 
-  -- Register keymaps only after connection is established
+  -- Register keymaps if configured (alternative to lazy.nvim keys spec)
   local key = M.opts.keymaps.inline_edit
   if key then
-    vim.keymap.set("n", key, function()
-      M.inline_edit()
-    end, { desc = "Violet: Inline Edit" })
-
-    vim.keymap.set("v", key, function()
-      -- Exit visual mode first, then open input
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
-      vim.schedule(function()
-        M.inline_edit_selection()
-      end)
-    end, { desc = "Violet: Inline Edit Selection" })
+    vim.keymap.set("n", key, M.inline_edit, { desc = "Violet: Inline Edit" })
+    vim.keymap.set("v", key, M.inline_edit_selection, { desc = "Violet: Inline Edit Selection" })
   end
 
   vim.notify("violet.nvim: ready", vim.log.levels.INFO)
 end
 
--- Wait for connection, then run callback
+-- Wait for connection, then run callback. Starts backend if not running.
 function M.when_ready(callback)
   if M.channel_id then
     callback()
     return
   end
 
-  vim.notify("violet.nvim: connecting...", vim.log.levels.INFO)
   M.on_ready_callback = callback
 
-  -- Timeout after 5 seconds
-  vim.defer_fn(function()
-    if M.on_ready_callback then
-      M.on_ready_callback = nil
-      vim.notify("violet.nvim: connection timeout", vim.log.levels.ERROR)
-    end
-  end, 5000)
+  -- Start backend if not already starting
+  if not M.starting then
+    vim.notify("violet.nvim: connecting...", vim.log.levels.INFO)
+    M.start()
+
+    -- Timeout after 5 seconds
+    vim.defer_fn(function()
+      if M.on_ready_callback then
+        M.on_ready_callback = nil
+        vim.notify("violet.nvim: connection timeout", vim.log.levels.ERROR)
+      end
+    end, 5000)
+  end
 end
 
 function M.open_input(selection)
@@ -196,14 +198,20 @@ end
 
 -- Start inline edit with visual selection
 function M.inline_edit_selection()
-  -- Get selection while still in visual mode
-  local start_pos = vim.fn.getpos("'<")
-  local end_pos = vim.fn.getpos("'>")
+  -- Use getpos("v") and getpos(".") which work while still in visual mode
+  -- (unlike '< and '> which only update after exiting visual mode)
+  local pos_v = vim.fn.getpos("v") -- visual start
+  local pos_dot = vim.fn.getpos(".") -- cursor (visual end)
 
-  local start_line = start_pos[2]
-  local start_col = start_pos[3]
-  local end_line = end_pos[2]
-  local end_col = end_pos[3]
+  -- Normalize: ensure start is before end
+  local start_line, start_col, end_line, end_col
+  if pos_v[2] < pos_dot[2] or (pos_v[2] == pos_dot[2] and pos_v[3] <= pos_dot[3]) then
+    start_line, start_col = pos_v[2], pos_v[3]
+    end_line, end_col = pos_dot[2], pos_dot[3]
+  else
+    start_line, start_col = pos_dot[2], pos_dot[3]
+    end_line, end_col = pos_v[2], pos_v[3]
+  end
 
   -- Get the selected text
   local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
@@ -227,8 +235,8 @@ function M.inline_edit_selection()
     text = table.concat(lines, "\n"),
   }
 
-  -- Exit visual mode first
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+  -- Exit visual mode
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
 
   -- Wait for ready, then open input
   M.when_ready(function()
