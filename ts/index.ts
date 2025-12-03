@@ -1,22 +1,43 @@
-import { createClient, CLAUDE_CODE_SPOOF } from "./client.ts";
+import { attach } from "./nvim.ts";
+import { createClient } from "./client.ts";
+import { performInlineEdit, type InlineEditRequest } from "./inline-edit.ts";
+import { log } from "./log.ts";
 
-async function main() {
-  const client = await createClient();
-
-  console.log("Testing Claude Max connection...");
-
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 100,
-    system: CLAUDE_CODE_SPOOF,
-    messages: [{ role: "user", content: "Say 'violet.nvim works!' and nothing else." }],
-  });
-
-  for (const block of response.content) {
-    if (block.type === "text") {
-      console.log(block.text);
-    }
-  }
+const socket = process.env["NVIM"];
+if (!socket) {
+  throw new Error("NVIM socket not provided");
 }
 
-main();
+await log("=== Violet Starting ===");
+await log("NVIM socket:", socket);
+
+const nvim = await attach(socket);
+await log("Connected to nvim, channel:", nvim.channelId);
+
+const client = await createClient();
+await log("Anthropic client created");
+
+console.error("violet.nvim: connected to neovim");
+
+// Register the bridge with neovim
+await nvim.call("nvim_exec_lua", [
+  `require("violet").bridge(${nvim.channelId})`,
+  [],
+]);
+
+// Handle inline edit requests
+nvim.onRequest("violetInlineEdit", async (args: unknown[]) => {
+  await log("Received violetInlineEdit request");
+  const req = args[0] as InlineEditRequest;
+  try {
+    await performInlineEdit(client, nvim, req);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await log("ERROR:", message);
+    console.error("violet.nvim: inline edit failed:", message);
+    return { success: false, error: message };
+  }
+});
+
+console.error("violet.nvim: ready");
