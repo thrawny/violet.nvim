@@ -198,6 +198,9 @@ end
 
 -- Start inline edit with visual selection
 function M.inline_edit_selection()
+  -- Capture visual mode type before doing anything
+  local mode = vim.fn.mode()
+
   -- Use getpos("v") and getpos(".") which work while still in visual mode
   -- (unlike '< and '> which only update after exiting visual mode)
   local pos_v = vim.fn.getpos("v") -- visual start
@@ -211,6 +214,13 @@ function M.inline_edit_selection()
   else
     start_line, start_col = pos_dot[2], pos_dot[3]
     end_line, end_col = pos_v[2], pos_v[3]
+  end
+
+  -- For line-wise visual (V), select entire lines
+  if mode == "V" then
+    start_col = 1
+    local end_line_content = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)[1] or ""
+    end_col = #end_line_content
   end
 
   -- Get the selected text

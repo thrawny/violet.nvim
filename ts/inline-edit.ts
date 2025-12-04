@@ -108,17 +108,18 @@ async function applySelectionReplace(
   selection: Selection,
   replacement: string
 ): Promise<void> {
-  // Get the actual line to clamp endCol
+  // nvim_buf_set_text uses 0-indexed, exclusive end
+  // selection.endCol is 1-indexed, inclusive (last selected char)
+  // Conversion: (endCol - 1) for 0-indexed + 1 for exclusive = endCol (no change)
+  // But we must clamp to actual line length to avoid out-of-range errors
   const endLineContent = await nvim.call<string[]>("nvim_buf_get_lines", [
     bufnr,
     Number(selection.endLine) - 1,
     Number(selection.endLine),
     false,
   ]);
-  const actualEndCol = Math.min(
-    Number(selection.endCol),
-    endLineContent[0]?.length ?? 0
-  );
+  const lineLength = endLineContent[0]?.length ?? 0;
+  const endCol = Math.min(Number(selection.endCol), lineLength);
 
   const lines = replacement.split("\n");
   await nvim.call("nvim_buf_set_text", [
@@ -126,7 +127,7 @@ async function applySelectionReplace(
     Number(selection.startLine) - 1,
     Number(selection.startCol) - 1,
     Number(selection.endLine) - 1,
-    actualEndCol,
+    endCol,
     lines,
   ]);
 }
