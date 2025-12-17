@@ -3,22 +3,26 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const inlineEditTool: Anthropic.Tool = {
   name: "inline_edit",
   description:
-    "Replace text. You will only get one shot so do the whole edit in a single tool invocation.",
+    "Edit lines in the file. You will only get one shot so do the whole edit in a single tool invocation.",
   input_schema: {
     type: "object" as const,
     properties: {
-      find: {
-        type: "string",
+      startLine: {
+        type: "number",
+        description: "The 1-indexed line number where the edit starts.",
+      },
+      endLine: {
+        type: "number",
         description:
-          "The text to replace. This should be the exact and complete text to replace, including indentation. Regular expressions are not supported. If the text appears multiple times, only the first match will be replaced.",
+          "The 1-indexed line number where the edit ends (inclusive). Use the same as startLine to replace a single line. Set endLine = startLine - 1 to insert before startLine without removing anything.",
       },
       replace: {
         type: "string",
         description:
-          "New content that will replace the existing text. This should be the complete text - do not skip lines or use ellipsis.",
+          "The new code/text only. Do NOT include the user's instruction or any explanation - just the raw content to insert.",
       },
     },
-    required: ["find", "replace"],
+    required: ["startLine", "endLine", "replace"],
   },
 };
 
@@ -31,7 +35,7 @@ export const replaceSelectionTool: Anthropic.Tool = {
       replace: {
         type: "string",
         description:
-          "New content that will replace the existing text. This should be the complete text - do not skip lines or use ellipsis.",
+          "The new code/text only. Do NOT include the user's instruction or any explanation - just the raw content.",
       },
     },
     required: ["replace"],
@@ -39,7 +43,8 @@ export const replaceSelectionTool: Anthropic.Tool = {
 };
 
 export type InlineEditInput = {
-  find: string;
+  startLine: number;
+  endLine: number;
   replace: string;
 };
 

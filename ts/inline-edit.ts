@@ -8,7 +8,7 @@ import {
 } from "./tools.ts";
 import { log } from "./log.ts";
 
-const SYSTEM_PROMPT = `You are a code editing assistant. When the user asks you to modify code, use the provided tool to make the edit. Be precise and make exactly the changes requested.`;
+const SYSTEM_PROMPT = `You are a code editing assistant. Use the provided tool to make the edit. The replace field must contain ONLY the new code/text - never include the user's instruction or any commentary.`;
 
 type Selection = {
   startLine: number;
@@ -42,7 +42,7 @@ I have the following text selected on line ${req.selection.startLine}:
 ${req.selection.text}
 \`\`\`
 
-${req.instruction}`;
+Instruction: ${req.instruction}`;
   }
 
   const lines = req.fileContent.split("\n");
@@ -55,7 +55,7 @@ ${req.fileContent}
 
 My cursor is on line ${req.cursorLine}: ${cursorLineContent}
 
-${req.instruction}`;
+Instruction: ${req.instruction}`;
 }
 
 export async function performInlineEdit(
@@ -94,9 +94,10 @@ export async function performInlineEdit(
     await applySelectionReplace(nvim, req.bufnr, req.selection, input.replace);
   } else {
     const input = toolUse.input as InlineEditInput;
-    await log("Applying inline edit - find:", input.find);
+    await log("Applying inline edit - startLine:", input.startLine);
+    await log("Applying inline edit - endLine:", input.endLine);
     await log("Applying inline edit - replace:", input.replace);
-    await applyInlineEdit(nvim, req.bufnr, input.find, input.replace);
+    await applyInlineEdit(nvim, req.bufnr, input.startLine, input.endLine, input.replace);
   }
 
   await log("Edit applied successfully");
@@ -135,63 +136,21 @@ async function applySelectionReplace(
 async function applyInlineEdit(
   nvim: Nvim,
   bufnr: number,
-  find: string,
+  startLine: number,
+  endLine: number,
   replace: string
 ): Promise<void> {
-  const lines = await nvim.call<string[]>("nvim_buf_get_lines", [
+  // Convert 1-indexed to 0-indexed for nvim_buf_set_lines
+  // nvim_buf_set_lines uses [start, end) range (end is exclusive)
+  const start0 = startLine - 1;
+  const end0 = endLine; // endLine is inclusive in our API, exclusive in nvim
+
+  const replacementLines = replace === "" ? [] : replace.split("\n");
+  await nvim.call("nvim_buf_set_lines", [
     bufnr,
-    0,
-    -1,
+    start0,
+    end0,
     false,
-  ]);
-  const content = lines.join("\n");
-
-  // Handle empty file - just set the content directly
-  if (content === "" || content.trim() === "") {
-    await log("Empty file detected, setting content directly");
-    const replacementLines = replace.split("\n");
-    await nvim.call("nvim_buf_set_lines", [bufnr, 0, -1, false, replacementLines]);
-    return;
-  }
-
-  const startIdx = content.indexOf(find);
-  if (startIdx === -1) {
-    throw new Error(`Could not find text to replace: ${find.slice(0, 50)}...`);
-  }
-
-  const endIdx = startIdx + find.length;
-
-  // Convert character indices to line/col
-  let startLine = 0;
-  let startCol = 0;
-  let endLine = 0;
-  let endCol = 0;
-  let pos = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i].length + 1; // +1 for newline
-
-    if (pos <= startIdx && startIdx < pos + lineLen) {
-      startLine = i;
-      startCol = startIdx - pos;
-    }
-
-    if (pos <= endIdx && endIdx <= pos + lineLen) {
-      endLine = i;
-      endCol = endIdx - pos;
-      break;
-    }
-
-    pos += lineLen;
-  }
-
-  const replacementLines = replace.split("\n");
-  await nvim.call("nvim_buf_set_text", [
-    bufnr,
-    startLine,
-    startCol,
-    endLine,
-    endCol,
     replacementLines,
   ]);
 }
