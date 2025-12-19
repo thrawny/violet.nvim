@@ -8,9 +8,9 @@ import {
 } from "./tools.ts";
 import { log } from "./log.ts";
 
-const SYSTEM_PROMPT = `You are a code editing assistant. Use the provided tool to make the edit. The replace field must contain ONLY the new code/text - never include the user's instruction or any commentary.`;
+export const SYSTEM_PROMPT = `You are a code editing assistant. Use the provided tool to make the edit. The replace field must contain ONLY the new code/text - never include the user's instruction or any commentary.`;
 
-type Selection = {
+export type Selection = {
   startLine: number;
   startCol: number;
   endLine: number;
@@ -28,7 +28,7 @@ export type InlineEditRequest = {
   selection?: Selection;
 };
 
-function buildPrompt(req: InlineEditRequest): string {
+export function buildPrompt(req: InlineEditRequest): string {
   const ext = req.filePath.split(".").pop() || "";
 
   if (req.selection) {

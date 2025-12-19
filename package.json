@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run ts/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "bun run ts/eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
