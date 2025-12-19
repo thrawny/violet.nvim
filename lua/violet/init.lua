@@ -17,13 +17,6 @@ local function notify(msg, level)
     vim.notify(msg, level)
   end
 end
-M.state = {
-  input_buf = nil,
-  input_win = nil,
-  target_buf = nil,
-  target_win = nil,
-  selection = nil,
-}
 M.on_ready_callback = nil -- Callback to run when connection is established
 
 function M.setup(opts)
@@ -105,104 +98,42 @@ function M.when_ready(callback)
   end
 end
 
-function M.open_input(selection)
-  -- Store target window/buffer
-  M.state.target_win = vim.api.nvim_get_current_win()
-  M.state.target_buf = vim.api.nvim_get_current_buf()
-  M.state.selection = selection
+function M.do_inline_edit(selection)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local win = vim.api.nvim_get_current_win()
+  local cursor = vim.api.nvim_win_get_cursor(win)
 
-  -- Create input buffer
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-  vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-  vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+  vim.ui.input({ prompt = "Edit: " }, function(instruction)
+    if not instruction or instruction == "" then
+      return
+    end
 
-  -- Open split above current window
-  local win = vim.api.nvim_open_win(buf, true, {
-    split = "above",
-    height = 5,
-  })
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local file_content = table.concat(lines, "\n")
+    local file_path = vim.api.nvim_buf_get_name(bufnr)
 
-  vim.api.nvim_win_set_option(win, "winbar", "Violet: Describe your edit")
-  vim.api.nvim_win_set_option(win, "wrap", true)
+    local request = {
+      bufnr = bufnr,
+      filePath = file_path,
+      fileContent = file_content,
+      cursorLine = cursor[1],
+      cursorCol = cursor[2] + 1,
+      instruction = instruction,
+    }
 
-  M.state.input_buf = buf
-  M.state.input_win = win
+    if selection then
+      request.selection = selection
+    end
 
-  -- Keymaps for the input buffer
-  local function submit()
-    M.submit_edit()
-  end
-
-  local function cancel()
-    M.close_input()
-  end
-
-  vim.keymap.set("n", "<CR>", submit, { buffer = buf, desc = "Submit edit" })
-  vim.keymap.set("i", "<C-CR>", submit, { buffer = buf, desc = "Submit edit" })
-  vim.keymap.set("n", "<Esc>", cancel, { buffer = buf, desc = "Cancel" })
-  vim.keymap.set("n", "q", cancel, { buffer = buf, desc = "Cancel" })
-
-  vim.cmd("startinsert")
-end
-
-function M.close_input()
-  if M.state.input_win and vim.api.nvim_win_is_valid(M.state.input_win) then
-    vim.api.nvim_win_close(M.state.input_win, true)
-  end
-  M.state.input_buf = nil
-  M.state.input_win = nil
-  M.state.selection = nil
-end
-
-function M.submit_edit()
-  if not M.state.input_buf or not M.state.target_buf then
-    return
-  end
-
-  local input_lines = vim.api.nvim_buf_get_lines(M.state.input_buf, 0, -1, false)
-  local instruction = table.concat(input_lines, "\n")
-
-  if instruction == "" then
-    notify("violet: empty instruction", vim.log.levels.WARN)
-    return
-  end
-
-  -- Get file content and cursor position
-  local target_lines = vim.api.nvim_buf_get_lines(M.state.target_buf, 0, -1, false)
-  local file_content = table.concat(target_lines, "\n")
-  local file_path = vim.api.nvim_buf_get_name(M.state.target_buf)
-  local cursor = vim.api.nvim_win_get_cursor(M.state.target_win)
-
-  local request = {
-    bufnr = M.state.target_buf,
-    filePath = file_path,
-    fileContent = file_content,
-    cursorLine = cursor[1],
-    cursorCol = cursor[2] + 1,
-    instruction = instruction,
-  }
-
-  if M.state.selection then
-    request.selection = M.state.selection
-  end
-
-  -- Update winbar to show loading
-  if M.state.input_win and vim.api.nvim_win_is_valid(M.state.input_win) then
-    vim.api.nvim_win_set_option(M.state.input_win, "winbar", "Violet: Processing...")
-  end
-
-  -- Make the RPC call
-  vim.rpcrequest(M.channel_id, "violetInlineEdit", request)
-
-  M.close_input()
-  notify("violet: edit applied", vim.log.levels.INFO)
+    vim.rpcrequest(M.channel_id, "violetInlineEdit", request)
+    notify("violet: edit applied", vim.log.levels.INFO)
+  end)
 end
 
 -- Start inline edit (no selection)
 function M.inline_edit()
   M.when_ready(function()
-    M.open_input(nil)
+    M.do_inline_edit(nil)
   end)
 end
 
@@ -258,9 +189,9 @@ function M.inline_edit_selection()
   -- Exit visual mode
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
 
-  -- Wait for ready, then open input
+  -- Wait for ready, then prompt for instruction
   M.when_ready(function()
-    M.open_input(selection)
+    M.do_inline_edit(selection)
   end)
 end
 
