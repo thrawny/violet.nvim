@@ -23,6 +23,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   keys = {
     { "<leader>ai", function() require("violet").inline_edit() end, desc = "Inline Edit" },
     { "<leader>ai", function() require("violet").inline_edit_selection() end, mode = "v", desc = "Inline Edit Selection" },
+    { "<leader>an", function() require("violet").edit_prediction() end, desc = "Edit Prediction" },
   },
   config = function()
     require("violet").setup()
@@ -34,6 +35,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 1. In normal mode, press `<leader>ai` to open the edit prompt
 2. In visual mode, select text and press `<leader>ai` to edit the selection
-3. Describe your edit and press Enter to apply
+3. In normal or insert mode, press `<leader>an` to trigger an edit prediction
+4. Describe your edit and press Enter to apply
 
 The plugin opens a small input window where you describe the change you want. Press `<Esc>` or `q` to cancel.

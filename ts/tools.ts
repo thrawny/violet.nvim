@@ -42,6 +42,28 @@ export const replaceSelectionTool: Anthropic.Tool = {
   },
 };
 
+export const predictEditTool: Anthropic.Tool = {
+  name: "predict_edit",
+  description:
+    "Predict the user's next edit within the provided context window.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      find: {
+        type: "string",
+        description:
+          "The exact text to find inside the provided context window. It may include the cursor marker if useful.",
+      },
+      replace: {
+        type: "string",
+        description:
+          "The replacement text for the find target. Do NOT include any explanation.",
+      },
+    },
+    required: ["find", "replace"],
+  },
+};
+
 export type InlineEditInput = {
   startLine: number;
   endLine: number;
@@ -49,5 +71,10 @@ export type InlineEditInput = {
 };
 
 export type ReplaceSelectionInput = {
+  replace: string;
+};
+
+export type PredictEditInput = {
+  find: string;
   replace: string;
 };

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
+    "diff": "^8.0.2",
     "msgpackr": "^1.11.5"
   },
   "devDependencies": {

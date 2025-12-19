@@ -6,9 +6,15 @@ import {
   type Selection,
 } from "./inline-edit.ts";
 import {
+  buildPredictionPrompt,
+  PREDICTION_SYSTEM_PROMPT,
+} from "./edit-prediction.ts";
+import {
   inlineEditTool,
   replaceSelectionTool,
+  predictEditTool,
   type InlineEditInput,
+  type PredictEditInput,
   type ReplaceSelectionInput,
 } from "./tools.ts";
 
@@ -99,6 +105,63 @@ const tests: TestCase[] = [
   },
 ];
 
+type PredictionTestCase = {
+  name: string;
+  contextLines: string[];
+  bufferName: string;
+  cursorLine: number;
+  cursorCol: number;
+  recentChanges: {
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    oldText: string;
+    newText: string;
+  }[];
+};
+
+const predictionTests: PredictionTestCase[] = [
+  {
+    name: "predict edit in simple function",
+    bufferName: "src/example.ts",
+    contextLines: [
+      "function add(a: number, b: number) {",
+      "  return a + b",
+      "}",
+    ],
+    cursorLine: 1,
+    cursorCol: 2,
+    recentChanges: [
+      {
+        filePath: "src/example.ts",
+        startLine: 0,
+        endLine: 0,
+        oldText: "function add(a, b) {",
+        newText: "function add(a: number, b: number) {",
+      },
+    ],
+  },
+  {
+    name: "predict edit after recent rename",
+    bufferName: "app/api.ts",
+    contextLines: [
+      "const result = await fetchData();",
+      "console.log(result);",
+    ],
+    cursorLine: 0,
+    cursorCol: 14,
+    recentChanges: [
+      {
+        filePath: "app/api.ts",
+        startLine: 0,
+        endLine: 0,
+        oldText: "const data = await fetchData();",
+        newText: "const result = await fetchData();",
+      },
+    ],
+  },
+];
+
 function isSelectionMode(
   test: TestCase
 ): test is TestCase & { selection: Selection } {
@@ -109,6 +172,46 @@ function isNormalModeExpected(
   expected: NormalModeExpected | SelectionModeExpected
 ): expected is NormalModeExpected {
   return "startLine" in expected;
+}
+
+async function runPredictionTest(
+  client: Awaited<ReturnType<typeof createClient>>,
+  test: PredictionTestCase
+): Promise<{ pass: boolean; actual: unknown; error?: string }> {
+  const prompt = buildPredictionPrompt({
+    contextLines: test.contextLines,
+    cursorLine: test.cursorLine,
+    cursorCol: test.cursorCol,
+    bufferName: test.bufferName,
+    startLine: 0,
+    endLine: test.contextLines.length - 1,
+    recentChanges: test.recentChanges,
+  });
+
+  const response = await client.messages.create({
+    model: "claude-haiku-4-5",
+    max_tokens: 4096,
+    system: PREDICTION_SYSTEM_PROMPT,
+    tools: [predictEditTool],
+    tool_choice: { type: "tool", name: predictEditTool.name },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const toolUse = response.content.find((block) => block.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    return { pass: false, actual: null, error: "No tool use in response" };
+  }
+
+  const actual = toolUse.input as PredictEditInput;
+  const contextText = test.contextLines.join("\n");
+  const findText = actual.find?.replace(/│/g, "");
+  const pass =
+    typeof actual.find === "string" &&
+    typeof actual.replace === "string" &&
+    (contextText.includes(actual.find) ||
+      (findText !== undefined && contextText.includes(findText)));
+
+  return { pass, actual };
 }
 
 async function runTest(
@@ -129,7 +232,7 @@ async function runTest(
   const prompt = buildPrompt(req);
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-haiku-4-5",
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     tools: [tool],
@@ -184,6 +287,28 @@ async function main() {
         for (const exp of test.expected) {
           console.log("    -", JSON.stringify(exp));
         }
+        console.log("  Actual:", JSON.stringify(result.actual));
+        if (result.error) {
+          console.log("  Error:", result.error);
+        }
+        failed++;
+      }
+    } catch (err) {
+      console.log("✗ ERROR");
+      console.log("  ", err instanceof Error ? err.message : err);
+      failed++;
+    }
+  }
+
+  for (const test of predictionTests) {
+    process.stdout.write(`Running: ${test.name}... `);
+    try {
+      const result = await runPredictionTest(client, test);
+      if (result.pass) {
+        console.log("✓ PASS");
+        passed++;
+      } else {
+        console.log("✗ FAIL");
         console.log("  Actual:", JSON.stringify(result.actual));
         if (result.error) {
           console.log("  Error:", result.error);
