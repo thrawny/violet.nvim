@@ -3,10 +3,20 @@ local M = {}
 M.channel_id = nil
 M.starting = false -- Prevents multiple start() calls
 M.opts = {
+  debug = false,
   keymaps = {
     inline_edit = false, -- Users typically set keymaps via lazy.nvim keys spec
   },
 }
+
+local function notify(msg, level)
+  -- Always show errors and warnings, only show info/debug when debug mode is on
+  if level == vim.log.levels.ERROR or level == vim.log.levels.WARN then
+    vim.notify(msg, level)
+  elseif M.opts.debug then
+    vim.notify(msg, level)
+  end
+end
 M.state = {
   input_buf = nil,
   input_win = nil,
@@ -34,20 +44,20 @@ function M.start()
     cwd = plugin_root,
     on_exit = function(_, code)
       if code ~= 0 then
-        vim.notify("violet.nvim: process exited with code " .. code, vim.log.levels.ERROR)
+        notify("violet.nvim: process exited with code " .. code, vim.log.levels.ERROR)
       end
     end,
     on_stderr = function(_, data)
       for _, line in ipairs(data) do
         if line ~= "" then
-          vim.notify("violet: " .. line, vim.log.levels.DEBUG)
+          notify("violet: " .. line, vim.log.levels.DEBUG)
         end
       end
     end,
   })
 
   if job_id <= 0 then
-    vim.notify("violet.nvim: failed to start", vim.log.levels.ERROR)
+    notify("violet.nvim: failed to start", vim.log.levels.ERROR)
   end
 end
 
@@ -68,7 +78,7 @@ function M.bridge(channel_id)
     vim.keymap.set("v", key, M.inline_edit_selection, { desc = "Violet: Inline Edit Selection" })
   end
 
-  vim.notify("violet.nvim: ready", vim.log.levels.INFO)
+  notify("violet.nvim: ready", vim.log.levels.INFO)
 end
 
 -- Wait for connection, then run callback. Starts backend if not running.
@@ -82,14 +92,14 @@ function M.when_ready(callback)
 
   -- Start backend if not already starting
   if not M.starting then
-    vim.notify("violet.nvim: connecting...", vim.log.levels.INFO)
+    notify("violet.nvim: connecting...", vim.log.levels.INFO)
     M.start()
 
     -- Timeout after 5 seconds
     vim.defer_fn(function()
       if M.on_ready_callback then
         M.on_ready_callback = nil
-        vim.notify("violet.nvim: connection timeout", vim.log.levels.ERROR)
+        notify("violet.nvim: connection timeout", vim.log.levels.ERROR)
       end
     end, 5000)
   end
@@ -154,7 +164,7 @@ function M.submit_edit()
   local instruction = table.concat(input_lines, "\n")
 
   if instruction == "" then
-    vim.notify("violet: empty instruction", vim.log.levels.WARN)
+    notify("violet: empty instruction", vim.log.levels.WARN)
     return
   end
 
@@ -186,7 +196,7 @@ function M.submit_edit()
   vim.rpcrequest(M.channel_id, "violetInlineEdit", request)
 
   M.close_input()
-  vim.notify("violet: edit applied", vim.log.levels.INFO)
+  notify("violet: edit applied", vim.log.levels.INFO)
 end
 
 -- Start inline edit (no selection)
